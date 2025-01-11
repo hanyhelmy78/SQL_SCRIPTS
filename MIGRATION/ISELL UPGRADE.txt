@@ -1,0 +1,27 @@
+Isell OS & Database upgrade
+
+Isell servers windows version & database version are about to be out of support, need to upgrade OS to windows server 2019 & database to SQL Server 2019 to maintain stability & ensure business continuity of the selling functions 
+
+OS upgrade steps:
+
+1- Failover Cluster Manager --> Pause secondary node --> Drain roles.
+
+2- Upgrade the node to Windows server 2016.
+
+3- Resume the node --> Failback roles.
+
+4- Repeat the same for all 3 nodes.
+
+5- Run PS command: Update-ClusterFunctionalLevel Windows.
+
+6- Repeat the same steps for windows server 2019.
+
+7- Run PS command: Update-ClusterFunctionalLevel Windows.
+=======================================================
+SQL Server upgrade steps:
+
+1- Upgrade all 3 nodes @the same time.
+
+2- Restart the primary node --> automatic failover will occur --> once up restart other 2 nodes. 
+
+3- Failback to Primary.

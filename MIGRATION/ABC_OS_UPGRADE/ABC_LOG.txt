@@ -1,0 +1,199 @@
+BACKUP DATABASE [ABP_SFA_BMB] TO  [ABP_SFA_BMB_Tape] WITH NOFORMAT, INIT,  NAME = N'ABP_SFA_BMB-Full Database Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 5
+5 percent processed.
+10 percent processed.
+15 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+35 percent processed.
+40 percent processed.
+45 percent processed.
+50 percent processed.
+55 percent processed.
+60 percent processed.
+65 percent processed.
+70 percent processed.
+75 percent processed.
+80 percent processed.
+85 percent processed.
+90 percent processed.
+95 percent processed.
+Processed 5423880 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB' on file 1.
+100 percent processed.
+Processed 22 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB_log' on file 1.
+BACKUP DATABASE successfully processed 5423902 pages in 396.850 seconds (106.776 MB/sec).
+==================================================================================================================================================			
+BACKUP DATABASE [ABP_BMB] TO  [ABP_BMB_Tape] WITH NOFORMAT, INIT,  NAME = N'ABP_BMB-Full Database Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 5
+5 percent processed.
+10 percent processed.
+15 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+35 percent processed.
+40 percent processed.
+45 percent processed.
+50 percent processed.
+55 percent processed.
+60 percent processed.
+65 percent processed.
+70 percent processed.
+75 percent processed.
+80 percent processed.
+85 percent processed.
+90 percent processed.
+95 percent processed.
+Processed 27320 pages for database 'ABP_BMB', file 'ABP_BMB' on file 1.
+100 percent processed.
+Processed 4 pages for database 'ABP_BMB', file 'ABP_BMB_log' on file 1.
+BACKUP DATABASE successfully processed 27324 pages in 2.514 seconds (84.911 MB/sec).
+
+(1 row(s) affected)
+===============================================================================================================================
+5 percent processed.
+10 percent processed.
+15 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+35 percent processed.
+40 percent processed.
+45 percent processed.
+50 percent processed.
+55 percent processed.
+60 percent processed.
+65 percent processed.
+70 percent processed.
+75 percent processed.
+80 percent processed.
+85 percent processed.
+90 percent processed.
+95 percent processed.
+100 percent processed.
+Processed 27320 pages for database 'ABP_BMB', file 'ABP_BMB' on file 1.
+Processed 4 pages for database 'ABP_BMB', file 'ABP_BMB_log' on file 1.
+RESTORE DATABASE successfully processed 27324 pages in 2.069 seconds (103.174 MB/sec).
+===========================================================================================
+5 percent processed.
+10 percent processed.
+15 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+35 percent processed.
+40 percent processed.
+45 percent processed.
+50 percent processed.
+55 percent processed.
+60 percent processed.
+65 percent processed.
+70 percent processed.
+75 percent processed.
+80 percent processed.
+85 percent processed.
+90 percent processed.
+95 percent processed.
+100 percent processed.
+Processed 5423880 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB' on file 1.
+Processed 22 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB_log' on file 1.
+RESTORE DATABASE successfully processed 5423902 pages in 614.159 seconds (68.995 MB/sec).
+===============================================================================================================================================================
+BACKUP LOG [ABP_SFA_BMB] TO  [ABP_SFA_BMB] WITH NOFORMAT, NOINIT,  NAME = N'ABP_SFA_BMB-Transaction Log Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 5
+BACKUP LOG cannot modify the database because the database is read-only. The backup will continue, although subsequent backups will duplicate the work of this backup.
+5 percent processed.
+10 percent processed.
+15 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+35 percent processed.
+40 percent processed.
+45 percent processed.
+50 percent processed.
+55 percent processed.
+60 percent processed.
+65 percent processed.
+70 percent processed.
+75 percent processed.
+80 percent processed.
+85 percent processed.
+90 percent processed.
+95 percent processed.
+100 percent processed.
+Processed 12897 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB_log' on file 1.
+BACKUP LOG successfully processed 12897 pages in 1.335 seconds (75.469 MB/sec).
+========================================================================================================================================================================
+BACKUP LOG [ABP_BMB] TO  [ABP_BMB] WITH NOFORMAT, NOINIT,  NAME = N'ABP_BMB-Transaction Log Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 5
+BACKUP LOG cannot modify the database because the database is read-only. The backup will continue, although subsequent backups will duplicate the work of this backup.
+6 percent processed.
+10 percent processed.
+16 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+36 percent processed.
+40 percent processed.
+46 percent processed.
+50 percent processed.
+55 percent processed.
+61 percent processed.
+66 percent processed.
+70 percent processed.
+75 percent processed.
+81 percent processed.
+85 percent processed.
+91 percent processed.
+95 percent processed.
+100 percent processed.
+Processed 6475 pages for database 'ABP_BMB', file 'ABP_BMB_log' on file 1.
+BACKUP LOG successfully processed 6475 pages in 0.370 seconds (136.706 MB/sec).
+
+(1 row(s) affected)
+=======================================================================================================================================
+6 percent processed.
+10 percent processed.
+16 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+36 percent processed.
+40 percent processed.
+46 percent processed.
+50 percent processed.
+55 percent processed.
+61 percent processed.
+66 percent processed.
+70 percent processed.
+75 percent processed.
+81 percent processed.
+85 percent processed.
+91 percent processed.
+95 percent processed.
+100 percent processed.
+Processed 0 pages for database 'ABP_BMB', file 'ABP_BMB' on file 1.
+Processed 6475 pages for database 'ABP_BMB', file 'ABP_BMB_log' on file 1.
+RESTORE LOG successfully processed 6475 pages in 0.722 seconds (70.057 MB/sec).
+==================================================================================================================================================
+5 percent processed.
+10 percent processed.
+15 percent processed.
+20 percent processed.
+25 percent processed.
+30 percent processed.
+35 percent processed.
+40 percent processed.
+45 percent processed.
+50 percent processed.
+55 percent processed.
+60 percent processed.
+65 percent processed.
+70 percent processed.
+75 percent processed.
+80 percent processed.
+85 percent processed.
+90 percent processed.
+95 percent processed.
+100 percent processed.
+Processed 0 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB' on file 1.
+Processed 12897 pages for database 'ABP_SFA_BMB', file 'RASHEDKSADB_log' on file 1.
+RESTORE LOG successfully processed 12897 pages in 2.795 seconds (36.047 MB/sec).

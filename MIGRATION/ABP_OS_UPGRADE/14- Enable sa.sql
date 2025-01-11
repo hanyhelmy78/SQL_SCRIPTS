@@ -1,0 +1,6 @@
+USE [master]
+GO
+GRANT CONNECT SQL TO [sa]
+GO
+ALTER LOGIN [sa] ENABLE
+GO

@@ -1,0 +1,13 @@
+DB MAIL
+notification@<Domain>.com -- email address to send the emails
+
+AZURE
+smtp.office365.com
+587
+REQUIRES SSL
+
+SITE / DEEM
+mail.<Domain>.com
+25
+
+hhelmy@.com -- email address to test the emails
