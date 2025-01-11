@@ -18,7 +18,7 @@ EXEC Weekly_Full_BKP.Subplan_1
 --		@TXLLOGType = 1,
 --		@Exceptionlist_DBs=@Exceptionlist_value,
 --		@job_name='Temp',
---		@p_recipients = 'hany.helmy@drsulaimanalhabib.com'
+--		@p_recipients = 'hany.helmy@.com'
 
 --SELECT	'Return Value' = @return_value
 --GO
