@@ -1,0 +1,1 @@
+Memory utilization from the perspective of the OS on a database server isn’t useful, a database server is nearly always going to be using all the available memory.

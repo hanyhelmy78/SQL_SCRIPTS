@@ -1,0 +1,4 @@
+DBCC FREESYSTEMCACHE ('TokenAndPermUserStore') 
+DBCC FREEPROCCACHE
+DBCC FREESESSIONCACHE
+dbcc freesystemcache ('ALL')
