@@ -1,0 +1,13 @@
+https://www.mssqltips.com/sqlservertip/6730/sql-server-dba-utility-dashboard/
+
+RUN --> C:\Windows\Microsoft.NET\Framework64\v3.5
+
+COPY Csharp_SQL_TOOLKIT_Combo.cs TO THE ABOVE PATH
+
+Put a list of your own servers in the combo box. Look for "///AAA" in the code and add your servers. 
+
+compile  --> CMD --> C:\Windows\Microsoft.NET\Framework64\v3.5\csc.exe Csharp_SQL_TOOLKIT_Combo.cs
+
+Run the Executable:
+
+At a DOS prompt run the following or just double click on the exe FILE (Csharp_SQL_TOOLKIT_Combo.exe) THAT IS CREATED IN FOLDER: C:\Windows\Microsoft.NET\Framework64\v3.5
