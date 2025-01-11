@@ -1,0 +1,5 @@
+1. create the master key in master db.
+2. create the certificate in master db.
+3. create the DEK in the desired db protected by the certificate.
+4. backup the certificate.
+5. the DEK is backed-up already with the db.

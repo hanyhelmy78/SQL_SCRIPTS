@@ -1,0 +1,1 @@
+USE ABP_SFA_BMBSELECT * FROM sys.dm_tran_locks  WHERE resource_database_id = DB_ID() and resource_type = 'OBJECT' AND request_mode LIKE '%X%'AND resource_associated_entity_id = OBJECT_ID(N'dbo.Pre_Trx_Details'); -- Promo_Headers Assignments-- SELECT * from sys.objects where object_id in (1616457040)

@@ -1,0 +1,1 @@
+select * into WingTipToys2012.dbo.DepartmentCopy from AdventureWorks2008R2.HumanResources.Department
