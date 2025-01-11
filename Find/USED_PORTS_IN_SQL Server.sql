@@ -1,0 +1,1 @@
+SELECT * FROM Sys.tcp_endpoints --WHERE Type IN (1.3,4);

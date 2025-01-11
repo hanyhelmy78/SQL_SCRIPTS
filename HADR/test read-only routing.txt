@@ -1,0 +1,4 @@
+SQLCMD -S AGcluster -E -d <DB_NAME> -K ReadOnly
+
+select @@servername
+GO

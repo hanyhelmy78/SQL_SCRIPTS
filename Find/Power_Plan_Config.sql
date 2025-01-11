@@ -1,0 +1,1 @@
+EXEC master.dbo.xp_cmdshell 'powercfg /list'
