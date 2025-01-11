@@ -1,0 +1,3 @@
+sp_AllNightLog, sp_AllNightLog_Setup, sp_BlitzInMemoryOLTP, and sp_BlitzQueryStore are no longer maintained. They may still work, but no guarantees. Please don't submit issues or pull requests to change them. You're welcome to fork the code and build your own supported version, of course, since they're open source.
+
+The other files in this folder are older versions of the First Responder Kit that work with versions of Microsoft SQL Server that Microsoft themselves no longer support. If you're cursed enough to work with antiques like SQL Server 2012, 2008, or heaven forbid, 2005, you may still be able to get value out of these, but we don't support the scripts anymore either.
