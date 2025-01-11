@@ -17,6 +17,6 @@ EXEC	@return_value = [dbo].[DMV_BackupAll]
 		@TXLLOGType = 0,
 		@Exceptionlist_DBs=@Exceptionlist_value,
 		@job_name='Full_BKP_Failure',
-		@p_recipients = 'hhelmy@aljomaihbev.com'
+		@p_recipients = ''
 SELECT	'Return Value' = @return_value
 GO
