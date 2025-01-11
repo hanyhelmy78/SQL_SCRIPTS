@@ -9,14 +9,14 @@ DECLARE	@return_value int
 EXEC	@return_value = [dbo].[DMV_BackupAll]
 		@start_DB_ID = 7, 
 		@END_DB_ID = 8, 
-		@TapeBackupLocation = N'\\RUH1SFAB\ABP_Backup\',
-		@TranBackupLocation = N'\\RUH1SFAB\ABP_Backup\',
+		@TapeBackupLocation = N'\\\ABP_Backup\',
+		@TranBackupLocation = N'\\\ABP_Backup\',
 		@FULLBackup = 0,
 		@TXNLOG = 1,
 		@TXLLOGType = 0,
 		--@Exceptionlist_DBs=@Exceptionlist_value,
 		@job_name='NOJob',
-		@p_recipients = 'hhelmy@aljomaihbev.com',
+		@p_recipients = 'hhelmy@.com',
 		@DiffBackup = 0
 
 SELECT	'Return Value' = @return_value
