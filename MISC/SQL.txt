@@ -1,0 +1,78 @@
+DAC:
+======
+admin:<the SQL Server name>
+========================================================================
+fsutil fsinfo ntfsinfo D:
+/* LOOK FOR Bytes Per Cluster */
+
+ipconfig /flushdns
+
+chkdsk /r F:
+==============================================================================================================
+@datasrc VALUE IN ANY LINKED SERVER MUST POINT TO AN EXISTING ODBC DRIVER & SAME ALIAS NAME IN THE TNSNAMES.ORA FILE
+==============================================================================================================
+-- 2 FIX THE MSDTC SERVICE ISSUE:
+
+msdtc -uninstall
+msdtc –install
+============================================================================================
+THE CONNECTION STRING 2 B USED 4 AG BETWEEN WSFC & STANDALONE INSTANCE WILL BE IN THIS FORMAT:
+
+<LSNR_NAME>\<STANDALONE_INSTANCE_NAME>,PORT#
+==================================================================================================
+When we want to start SQL Server in a Single user mode (-m), stop the SQL Server Agent. You may also disable the remote network protocols (TCP/IP and Named Pipes) of SQL Instance and allow only local connections to SQL. Once the activity is complete, remember to re-enable network protocols.
+
+CMD>net stop MSSQLServer
+CMD>net start MSSQLServer /mSQLCMD
+sqlcmd -S. -Usa
+OR:
+SQLCMD -S <server_name\instance_name> -U<user_name>
+
+USE [master]
+RESTORE DATABASE [master] FROM DISK = N'I:\BKP\master-Full Database Backup_27-3-17.bak' WITH  FILE = 1,  MOVE N'master' TO N'S:\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\master.mdf',  MOVE N'mastlog' TO N'S:\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\mastlog.ldf',  NOUNLOAD,  REPLACE,  STATS = 5
+GO
+=================================================================================
+START THE INSTANCE IN SINGLE USER MODE:
+
+1- net stop MSSQLServer
+2- cd C:\Program Files\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQL\Binn
+3- SQLServr.exe –m”Microsoft SQL Server Management Studio – Query”  –s<InstanceName>
+4- SQLServr.exe –mSQLCMD –smssqlserver
+=================================================================================
+-- 2 CHANGE THE SERVER COLLATION:
+==================================
+http://www.sqlservercentral.com/articles/Collation/70685/ -- TAKE LINKED SERVERS, OPERATORS, CREDENTIALS, JOBS, LOGINS, ALERTS, AND PROXY BACKUP ***********************************************
+
+-- RUN CMD AS ADMINISTRATOR
+C:\Program Files\Microsoft SQL Server\100\Setup Bootstrap\SQLServer2008R2>Setup /QUIET /ACTION=REBUILDDATABASE /INSTANCENAME=MSSQLSERVER /SQLSYSADMINACCOUNTS=<The SQL service account> /SAPWD=<sa password> /SQLCOLLATION=Arabic_CI_AS
+
+OR: C:\Program Files\Microsoft SQL Server\120\Setup Bootstrap\SQLServer2014>Setup /QUIET /ACTION=REBUILDDATABASE /INSTANCENAME=MSSQLSERVER /SQLSYSADMINACCOUNTS=<The SQL service account> /SAPWD=<sa password> /SQLCOLLATION=Arabic_CI_AS
+===============================================================================================
+SQL service stuck in stopping state:
+====================================
+CMD --> sc queryex mssqlserver --> taskkill /PID <pid> /F
+========================================================================================
+Server TCP provider failed to listen on ['any' <ipv4> 5022]. Tcp port is already in use
+
+SOLUTION:
+=========
+CMD (ON THE SERVER)--> netstat -aon | find /I "5022"
+netstat -p tcp -o -a -n --> net stop <PID: THE PROCESS THAT IS USING THE PORT 5022>
+
+https://blogs.msdn.microsoft.com/sql_pfe_blog/2016/10/05/tcp-port-is-already-in-use/
+==============================================================================================================
+-- TO ADD TRACE FLAG IN STARTUP PARAMETER:
+
+RUN --> sqlservermanager12.msc --> STARTUP PARAMETER --> -T<TRACE_FLAG_NUMBER_WITHOUT_SPACE> --> RESTART THE SERVICE.
+==============================================================================================================
+-- CMD command for the real firewall state
+
+netsh advfirewall show allprofiles
+==========================================================
+-- GET CLUSTER LOG
+
+Get-ClusterLog -Node VSC-Prod-SQL02 -TimeSpan 450 -- HOW MANY MINUTES BEFORE
+
+https://docs.microsoft.com/en-gb/troubleshoot/sql/availability-groups/troubleshooting-automatic-failover-problems
+===================================================================================================================
+GAME CHANGER 4 MULTI-TB DB BKP IS *SAN SNAPSHOT BACKUPS*
