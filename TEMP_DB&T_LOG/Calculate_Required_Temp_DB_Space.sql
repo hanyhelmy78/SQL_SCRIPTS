@@ -1,0 +1,1 @@
+DBCC CHECKDB ('Medium_StackOverflow2013') WITH ESTIMATEONLY

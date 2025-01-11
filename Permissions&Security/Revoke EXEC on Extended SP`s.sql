@@ -1,0 +1,13 @@
+REVOKE EXEC ON xp_availablemedia FROM PUBLIC
+REVOKE EXEC ON xp_dirtree FROM PUBLIC
+REVOKE EXEC ON xp_enumgroups FROM PUBLIC
+REVOKE EXEC ON xp_fixeddrives FROM PUBLIC
+REVOKE EXEC ON xp_regaddmultistring FROM PUBLIC
+REVOKE EXEC ON xp_regdeletekey FROM PUBLIC
+REVOKE EXEC ON xp_regdeletevalue FROM PUBLIC
+REVOKE EXEC ON xp_regenumvalues FROM PUBLIC
+REVOKE EXEC ON xp_regremovemultistring FROM PUBLIC
+REVOKE EXEC ON xp_regwrite FROM PUBLIC
+REVOKE EXEC ON xp_regread FROM PUBLIC
+REVOKE EXEC ON xp_servicecontrol FROM PUBLIC
+REVOKE EXEC ON xp_subdirs FROM PUBLIC
