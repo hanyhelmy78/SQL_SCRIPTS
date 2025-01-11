@@ -1,26 +1,10 @@
-sp_dropremotelogin RUH1SFAB
+sp_dropremotelogin 
 GO
 
-sp_dropserver [ruh1iSellR-ABP]
+sp_dropserver [-ABP]
 GO
-sp_addserver ruh1iSellRABP, local
+sp_addserver , local
 GO
---====================================
-sp_dropserver RUH1SFAS
-GO
-sp_addserver RUH1SFASTG, local
-GO
---====================================
+
 SELECT @@SERVERNAME AS 'Server Name'
 sp_helpserver
-
-sp_dropserver RUH1ABCSTG
-GO
-sp_addserver RUH1ABCSTGOLD, local
-GO
---====================================
-sp_dropserver RUH1ABCB
-GO
-sp_addserver RUH1ABCDB, local
-GO
---====================================
