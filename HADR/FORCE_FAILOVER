@@ -1,0 +1,4 @@
+ALTER AVAILABILITY GROUP AG_Name FORCE_FAILOVER_ALLOW_DATA_LOSS;
+-- After you bring the lost nodes up, you must resume the database manually
+-- When you failback to the previous primary replica,
+better to use Failover wizard with Force option
