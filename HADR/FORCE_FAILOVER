@@ -1,4 +1,10 @@
+-- In case the primary data center went completely down, then you need to force failover to the DR site with possible data loss 
+by executing the below t-sql command:
 ALTER AVAILABILITY GROUP AG_Name FORCE_FAILOVER_ALLOW_DATA_LOSS;
--- After you bring the lost nodes up, you must resume the database manually
--- When you failback to the previous primary replica,
-better to use Failover wizard with Force option
+
+-- After you bring the lost nodes up, you MUST resume synchronization for all databases manually:
+ALTER DATABASE <DB_NAME> SET HADR RESUME;
+
+/* Now you need to wait for the previous primary replica to be in Synchronizing state, then you can failback to it
+When you failback to the previous primary replica, you will have to use Failover with Force option in the failover wizard.
+*/
