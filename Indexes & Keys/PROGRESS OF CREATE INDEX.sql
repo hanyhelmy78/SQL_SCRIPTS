@@ -1,5 +1,3 @@
-DECLARE @SPID INT = 51;
-
 ;WITH agg AS
 (
      SELECT SUM(qp.[row_count]) AS [RowsProcessed],
@@ -11,7 +9,7 @@ DECLARE @SPID INT = 51;
      FROM sys.dm_exec_query_profiles qp
      WHERE qp.[physical_operator_name] IN (N'Table Scan', N'Clustered Index Scan',
                                            N'Index Scan',  N'Sort')
-     AND   qp.[session_id] = @SPID
+     AND   qp.[session_id] IN (SELECT session_id from sys.dm_exec_requests WHERE command IN ( 'CREATE INDEX','ALTER INDEX','ALTER TABLE') )
 ), comp AS
 (
      SELECT *,
