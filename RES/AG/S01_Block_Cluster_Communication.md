@@ -11,6 +11,7 @@ Start... ClusSvc            Cluster Service
 # service is down!
 
 netstat -ano | findstr "3343"
+
   TCP    0.0.0.0:3343           0.0.0.0:0              LISTENING       8776
 
 tasklist /v /fi "pid eq 8776"
@@ -23,6 +24,7 @@ wsmprovhost.exe               8776 Services                   0     78,240 K Unk
 # this process should not be listening to the cluster port! kill it!
 
 taskkill /pid 8776 /F
+
 SUCCESS: The process with PID 8776 has been terminated.
 
 # Confirm no process is listening on cluster port 3343!
