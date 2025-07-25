@@ -8,7 +8,7 @@ List volumes: Type **LIST VOLUME** and press Enter to display all available volu
 Select the target volume: Type **SELECT VOLUME X** (replace X with the number of the volume you want to clear read-only) and press Enter.
 Set the volume as read-only: Type **ATTRIBUTES VOLUME CLEAR READONLY** and press Enter.
 
-To confirm type: **ATTRIBUTES VOLUME** and look for Read-only, should be No.
+To confirm type: **ATTRIBUTES VOLUME** and look for Read-only value, should be No.
 
-Issue resolved!
+It might require to restart SQL service!
 */
