@@ -1,7 +1,7 @@
 USE [master]
 GO
 
-/****** Object:  Audit [BMB_AUDIT]    Script Date: 31/07/2019 11:56:35 AM ******/
+/****** This is to deny specific user from modifying database ******/
 CREATE SERVER AUDIT [BMB_AUDIT]
 TO FILE 
 (	FILEPATH = N'D:\Audit\'
@@ -17,13 +17,14 @@ WITH
 ALTER SERVER AUDIT [BMB_AUDIT] WITH (STATE = ON)
 GO
 --========================================================================
-USE [ABP_SFA_BMB]
+USE [<DB_NAME>]
 GO
 
 CREATE DATABASE AUDIT SPECIFICATION [BMB_AUDIT]
 FOR SERVER AUDIT [BMB_AUDIT]
-ADD (DELETE ON DATABASE::[ABP_SFA_BMB] BY [ALJOMAIHBEV\bmb3]),
-ADD (INSERT ON DATABASE::[ABP_SFA_BMB] BY [ALJOMAIHBEV\bmb3]),
-ADD (UPDATE ON DATABASE::[ABP_SFA_BMB] BY [ALJOMAIHBEV\bmb3])
+ADD (DELETE ON DATABASE::[<DB_NAME>] BY [<LOGIN_NAME>]),
+ADD (INSERT ON DATABASE::[<DB_NAME>] BY [<LOGIN_NAME>]),
+ADD (UPDATE ON DATABASE::[<DB_NAME>] BY [<LOGIN_NAME>])
 WITH (STATE = ON)
+
 GO
