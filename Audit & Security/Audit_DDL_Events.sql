@@ -45,7 +45,8 @@ BEGIN
         HOST_NAME(),
         @ip,
         PROGRAM_NAME(),
-        SUSER_SNAME();
+        SUSER_SNAME()
+-- WHERE @EventData.value('(/EVENT_INSTANCE/EventType)[1]','NVARCHAR(100) NOT IN ('UPDATE_STATISTICS', 'ALTER_INDEX')';
 END
 GO
 SET ANSI_NULLS OFF
@@ -56,3 +57,4 @@ GO
 ENABLE TRIGGER [ChangeTracker] ON ALL SERVER
 
 GO
+
