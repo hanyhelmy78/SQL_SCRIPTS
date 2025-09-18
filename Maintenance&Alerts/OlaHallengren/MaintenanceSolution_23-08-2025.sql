@@ -9519,7 +9519,7 @@ SET QUOTED_IDENTIFIER ON
 GO
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Queue]') AND type in (N'U'))
 BEGIN
-CREATE OR ALTER TABLE [dbo].[Queue](
+CREATE TABLE [dbo].[Queue](
   [QueueID] [int] IDENTITY(1,1) NOT NULL,
   [SchemaName] [sysname] NOT NULL,
   [ObjectName] [sysname] NOT NULL,
@@ -9542,7 +9542,7 @@ SET QUOTED_IDENTIFIER ON
 GO
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[QueueDatabase]') AND type in (N'U'))
 BEGIN
-CREATE OR ALTER TABLE [dbo].[QueueDatabase](
+CREATE TABLE [dbo].[QueueDatabase](
   [QueueID] [int] NOT NULL,
   [DatabaseName] [sysname] NOT NULL,
   [DatabaseOrder] [int] NULL,
@@ -9565,4 +9565,5 @@ REFERENCES [dbo].[Queue] ([QueueID])
 GO
 IF  EXISTS (SELECT * FROM sys.foreign_keys WHERE object_id = OBJECT_ID(N'[dbo].[FK_QueueDatabase_Queue]') AND parent_object_id = OBJECT_ID(N'[dbo].[QueueDatabase]'))
 ALTER TABLE [dbo].[QueueDatabase] CHECK CONSTRAINT [FK_QueueDatabase_Queue]
+
 GO
