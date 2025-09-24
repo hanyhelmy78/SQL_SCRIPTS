@@ -1,4 +1,13 @@
---Report by connection on your DB Server 
+/* The summary report */
+
+SELECT 
+DB_NAME(dbid) AS DBName ,
+COUNT(dbid) AS NumberOfConnections 
+FROM    sys.sysprocesses
+-- WHERE DB_NAME(dbid)= 'master'
+GROUP BY dbid
+
+-- All connections for specific DB 
 SELECT  DB_NAME(dbid) AS DBName ,
         loginame AS LoginName ,
         hostname ,
@@ -6,23 +15,17 @@ SELECT  DB_NAME(dbid) AS DBName ,
         SPID ,
         status
 FROM    sys.sysprocesses
- WHERE DB_NAME(dbid)= 'Bio-core'
+WHERE DB_NAME(dbid)= 'master'
 
- ---Count of Connection on your Db Server
+-- Count of connections on your DB Server
 
 SELECT * FROM sys.dm_exec_connections
 SELECT *
 FROM sys.dm_os_performance_counters
 WHERE counter_name = 'User Connections';
 
- SELECT 
-DB_NAME(dbid) AS DBName ,
- COUNT(dbid) AS NumberOfConnections 
- FROM    sys.sysprocesses
- --WHERE DB_NAME(dbid)= 'Bio-core'
- GROUP BY dbid
+-- Report for connections for a specific Login
 
----Report by Connection for specific Login
  SELECT  DB_NAME(dbid) AS DBName ,
         loginame AS LoginName ,
         hostname ,
@@ -31,16 +34,17 @@ DB_NAME(dbid) AS DBName ,
         status
 FROM    sys.sysprocesses
 WHERE   dbid > 0
-        AND loginame = 'coreBio';
+        AND loginame = '<LOGIN_NAME>';
 
-----Count of Connection for specific Login
+-- Count of connections for specific Login
+
 SELECT  DB_NAME(dbid) AS DBName ,
         COUNT(dbid) AS NumberOfConnections ,
         loginame AS LoginName ,
         hostname
 FROM    sys.sysprocesses
 WHERE   dbid > 0
-        AND loginame = 'coreBio'
+        AND loginame = '<LOGIN_NAME>'
 GROUP BY dbid ,
         loginame ,
         hostname;
