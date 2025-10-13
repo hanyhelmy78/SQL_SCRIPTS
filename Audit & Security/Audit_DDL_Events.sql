@@ -8,7 +8,7 @@ GO
 SET QUOTED_IDENTIFIER ON
 GO
 
-CREATE OR ALTER TRIGGER [ChangeTracker]
+CREATE OR ALTER TRIGGER [Audit_DDL_Events]
     ON ALL SERVER
 FOR DDL_EVENTS
 AS
@@ -22,7 +22,7 @@ BEGIN
             SELECT client_net_address
                 FROM sys.dm_exec_connections
                 WHERE session_id = @@SPID);
-    INSERT dbo.DDLEvents
+    INSERT <User_DB_name>.dbo.DDLEvents
     (
         EventType,
         EventDDL,
@@ -54,7 +54,5 @@ GO
 SET QUOTED_IDENTIFIER OFF
 GO
 
-ENABLE TRIGGER [ChangeTracker] ON ALL SERVER
-
+ENABLE TRIGGER [Audit_DDL_Events] ON ALL SERVER
 GO
-
