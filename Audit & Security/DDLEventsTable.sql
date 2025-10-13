@@ -30,8 +30,9 @@ GO
 GO
 
 /*
-Now if you created the table inside a user database, you must grant the below permission to ALL SQL Logins!
+Now if you created the table inside a user database, you must grant the below permission to ALL non-sysadmin SQL Logins!
 
 USE master
 GRANT VIEW SERVER STATE TO <[SQL_LOGINS]>
 */
+
