@@ -27,12 +27,10 @@ CREATE TABLE [dbo].DDLEvents(
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
---ALTER TABLE [dbo].[DMLEvents] ADD CONSTRAINT [DF_DMLEvents_MovedtoLive] DEFAULT ((0)) FOR [MovedtoLive]
 GO
 
 /*
 Now if you created the table inside a user database, you must grant the below permission to ALL SQL Logins!
-If you created the table in master database, no need to do it!
 
 USE master
 GRANT VIEW SERVER STATE TO <[SQL_LOGINS]>
