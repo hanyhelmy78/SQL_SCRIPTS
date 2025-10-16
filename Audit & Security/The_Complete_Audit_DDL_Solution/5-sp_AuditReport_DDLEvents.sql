@@ -17,8 +17,7 @@ BEGIN
 		DECLARE @columnname varchar(400);
 
 		SET @Command = 'DELETE FROM master.[dbo].[DDLEvents]
-      WHERE [EventDate] < GETDATE() - 30
-	  GO';
+      WHERE [EventDate] < GETDATE() - 30';
 	    EXEC SP_EXECUTESQL @Command;
 
 		SET @Var_Query1_For_Email =
@@ -56,4 +55,5 @@ BEGIN
 		SELECT @ErrorMessage = ERROR_MESSAGE(), @ErrorSeverity = ERROR_SEVERITY(), @ErrorState = ERROR_STATE();
 		RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
 	END CATCH
+
 END
