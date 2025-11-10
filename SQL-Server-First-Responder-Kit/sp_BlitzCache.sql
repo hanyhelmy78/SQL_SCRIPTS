@@ -14,6 +14,7 @@ SET QUOTED_IDENTIFIER ON;
 SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
+
 IF (
 SELECT
   CASE 
@@ -262,6 +263,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @DurationFilter DECIMAL(38,4) = NULL ,
     @HideSummary BIT = 0 ,
     @IgnoreSystemDBs BIT = 1 ,
+    @IgnoreReadableReplicaDBs BIT = 1 ,
     @OnlyQueryHashes VARCHAR(MAX) = NULL ,
     @IgnoreQueryHashes VARCHAR(MAX) = NULL ,
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
@@ -288,7 +290,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.24', @VersionDate = '20250407';
+SELECT @Version = '8.26', @VersionDate = '20251002';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1411,7 +1413,7 @@ CREATE TABLE #plan_usage
 );
 
 
-IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+IF @IgnoreReadableReplicaDBs = 1 AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
@@ -1830,7 +1832,7 @@ IF @VersionShowsAirQuoteActualPlans = 1
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
-	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+	IF @IgnoreReadableReplicaDBs = 1 AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
     BEGIN
     RAISERROR(N'Ignoring readable secondaries databases by default', 0, 1) WITH NOWAIT;
     SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (SELECT database_id FROM #ReadableDBs)' + @nl ;
@@ -4077,12 +4079,12 @@ SELECT @@SPID AS SPID,
                  AND ci.comma_paren_charindex > 0 
 			THEN SUBSTRING(ci.expression, ci.paren_charindex, ci.comma_paren_charindex)
        END AS converted_to,
-       CASE WHEN ci.at_charindex = 0
+       LEFT(CASE WHEN ci.at_charindex = 0
                  AND ci.convert_implicit_charindex = 0
                  AND ci.proc_name = 'Statement' 
 			THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
             ELSE '**idk_man**'
-       END AS compile_time_value
+       END, 258) AS compile_time_value
 FROM   #conversion_info AS ci
 OPTION (RECOMPILE);
 
