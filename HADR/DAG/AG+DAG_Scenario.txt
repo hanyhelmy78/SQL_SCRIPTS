@@ -1,0 +1,17 @@
+Leasons learnt from AG + DAG scenario:
+
+1- If 1 database goes into Intializing/In recovery status, and data resume is not possible, then remove it from the Secondary replica in the source AG.
+
+2- Remove the DB from the Secondary replica in Destination AG 
+
+3- Remove the DB from the primary replica in Destination AG 
+
+4- Remove the DB from the primary replica in the source AG.
+
+5- Stop the backup service.
+
+6- Add the database back to the source AG using Automatic Seeding mode (or backup/restore mode if the database is relatively small).
+
+7- Add the database back to the Destination AG.
+
+8- If the DB is fully synched, resume the backup service.
