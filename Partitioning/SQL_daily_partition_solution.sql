@@ -258,10 +258,265 @@ BEGIN
     PRINT 'Partition cleanup completed successfully.';
 END
 GO
+
+-- =============================================
+-- PARTITION SPLITTING AND DATA CORRECTION
+-- =============================================
+-- Create stored procedure to split a partition at a specific date
+IF OBJECT_ID('usp_SplitPartitionAtDate', 'P') IS NOT NULL
+    DROP PROCEDURE usp_SplitPartitionAtDate;
+GO
+
+CREATE PROCEDURE usp_SplitPartitionAtDate
+    @SplitDate DATETIME
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @SQL NVARCHAR(MAX);
+    DECLARE @ExistingBoundary INT;
+    
+    -- Check if boundary already exists
+    SELECT @ExistingBoundary = COUNT(*)
+    FROM sys.partition_range_values prv
+    INNER JOIN sys.partition_functions pf ON prv.function_id = pf.function_id
+    WHERE pf.name = 'PF_Event_FileManager_Daily'
+    AND CAST(value AS DATETIME) = @SplitDate;
+    
+    IF @ExistingBoundary > 0
+    BEGIN
+        PRINT 'Boundary already exists for date: ' + CONVERT(VARCHAR(23), @SplitDate, 121);
+        RETURN;
+    END
+    
+    -- Designate next filegroup
+    ALTER PARTITION SCHEME PS_Event_FileManager_Daily
+    NEXT USED [PRIMARY];
+    
+    -- Split the partition at the specified date
+    SET @SQL = N'ALTER PARTITION FUNCTION PF_Event_FileManager_Daily()
+                 SPLIT RANGE (''' + CONVERT(VARCHAR(23), @SplitDate, 121) + ''');';
+    
+    EXEC sp_executesql @SQL;
+    
+    PRINT 'Successfully split partition at: ' + CONVERT(VARCHAR(23), @SplitDate, 121);
+    
+    -- Show which partition the date is now in
+    DECLARE @PartitionNum INT;
+    SET @SQL = N'SELECT @PartNum = $PARTITION.PF_Event_FileManager_Daily(''' + 
+               CONVERT(VARCHAR(23), @SplitDate, 121) + ''')';
+    EXEC sp_executesql @SQL, N'@PartNum INT OUTPUT', @PartNum = @PartitionNum OUTPUT;
+    
+    PRINT 'Date now belongs to partition number: ' + CAST(@PartitionNum AS VARCHAR(10));
+END
+GO
+
+-- Create stored procedure to fix wrong data in partitions
+IF OBJECT_ID('usp_FixWrongDataInPartition', 'P') IS NOT NULL
+    DROP PROCEDURE usp_FixWrongDataInPartition;
+GO
+
+CREATE PROCEDURE usp_FixWrongDataInPartition
+    @PartitionNumber INT,
+    @Action VARCHAR(20) = 'REPORT' -- Options: REPORT, DELETE, CORRECT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @SQL NVARCHAR(MAX);
+    DECLARE @MinBoundary DATETIME;
+    DECLARE @MaxBoundary DATETIME;
+    DECLARE @WrongRowCount BIGINT;
+    
+    -- Get partition boundaries
+    SELECT 
+        @MinBoundary = ISNULL(LAG(CAST(value AS DATETIME)) OVER (ORDER BY boundary_id), '1900-01-01'),
+        @MaxBoundary = CAST(value AS DATETIME)
+    FROM sys.partition_range_values prv
+    INNER JOIN sys.partition_functions pf ON prv.function_id = pf.function_id
+    WHERE pf.name = 'PF_Event_FileManager_Daily'
+    AND boundary_id + 1 = @PartitionNumber;
+    
+    IF @MinBoundary IS NULL OR @MaxBoundary IS NULL
+    BEGIN
+        PRINT 'Invalid partition number: ' + CAST(@PartitionNumber AS VARCHAR(10));
+        RETURN;
+    END
+    
+    PRINT 'Checking partition ' + CAST(@PartitionNumber AS VARCHAR(10));
+    PRINT 'Expected date range: ' + CONVERT(VARCHAR(23), @MinBoundary, 121) + 
+          ' to ' + CONVERT(VARCHAR(23), @MaxBoundary, 121);
+    PRINT '';
+    
+    -- Find rows that don't belong in this partition
+    SELECT @WrongRowCount = COUNT(*)
+    FROM Event_FileManager
+    WHERE $PARTITION.PF_Event_FileManager_Daily(InsertedDate) = @PartitionNumber
+    AND (InsertedDate < @MinBoundary OR InsertedDate >= @MaxBoundary);
+    
+    PRINT 'Found ' + CAST(@WrongRowCount AS VARCHAR(20)) + ' rows with incorrect InsertedDate in this partition.';
+    
+    IF @WrongRowCount = 0
+    BEGIN
+        PRINT 'No data issues found in partition ' + CAST(@PartitionNumber AS VARCHAR(10));
+        RETURN;
+    END
+    
+    -- Report details
+    IF @Action = 'REPORT'
+    BEGIN
+        SELECT 
+            'Partition ' + CAST(@PartitionNumber AS VARCHAR(10)) AS PartitionInfo,
+            InsertedDate,
+            COUNT(*) AS [RowCount],
+            $PARTITION.PF_Event_FileManager_Daily(InsertedDate) AS ActualPartitionNumber
+        FROM Event_FileManager
+        WHERE $PARTITION.PF_Event_FileManager_Daily(InsertedDate) = @PartitionNumber
+        AND (InsertedDate < @MinBoundary OR InsertedDate >= @MaxBoundary)
+        GROUP BY InsertedDate, $PARTITION.PF_Event_FileManager_Daily(InsertedDate)
+        ORDER BY InsertedDate;
+        
+        PRINT '';
+        PRINT 'Run with @Action = ''DELETE'' to remove these rows';
+        PRINT 'Or fix the data manually and rebuild the index to move rows to correct partitions';
+    END
+    
+    -- Delete wrong data
+    ELSE IF @Action = 'DELETE'
+    BEGIN
+        DELETE FROM Event_FileManager
+        WHERE $PARTITION.PF_Event_FileManager_Daily(InsertedDate) = @PartitionNumber
+        AND (InsertedDate < @MinBoundary OR InsertedDate >= @MaxBoundary);
+        
+        PRINT 'Deleted ' + CAST(@@ROWCOUNT AS VARCHAR(20)) + ' rows from partition ' + 
+              CAST(@PartitionNumber AS VARCHAR(10));
+    END
+    
+    ELSE
+    BEGIN
+        PRINT 'Invalid action. Use REPORT or DELETE';
+    END
+END
+GO
+
+-- Create stored procedure to rebuild partition and move data to correct partitions
+IF OBJECT_ID('usp_RebuildPartitionedTable', 'P') IS NOT NULL
+    DROP PROCEDURE usp_RebuildPartitionedTable;
+GO
+
+CREATE PROCEDURE usp_RebuildPartitionedTable
+    @RebuildOption VARCHAR(20) = 'ONLINE' -- Options: ONLINE, OFFLINE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @SQL NVARCHAR(MAX);
+    
+    PRINT 'Starting partition rebuild for Event_FileManager...';
+    PRINT 'This will move all rows to their correct partitions based on InsertedDate.';
+    PRINT '';
+    
+    IF @RebuildOption = 'ONLINE'
+    BEGIN
+        -- Online rebuild (requires Enterprise Edition for large tables)
+        SET @SQL = N'ALTER INDEX ALL ON Event_FileManager 
+                     REBUILD PARTITION = ALL 
+                     WITH (ONLINE = ON, MAXDOP = 4);';
+        
+        PRINT 'Performing ONLINE rebuild...';
+    END
+    ELSE
+    BEGIN
+        -- Offline rebuild (faster but table is locked)
+        SET @SQL = N'ALTER INDEX ALL ON Event_FileManager 
+                     REBUILD PARTITION = ALL 
+                     WITH (MAXDOP = 4);';
+        
+        PRINT 'Performing OFFLINE rebuild...';
+    END
+    
+    BEGIN TRY
+        EXEC sp_executesql @SQL;
+        PRINT 'Rebuild completed successfully!';
+        PRINT 'All data has been moved to correct partitions.';
+    END TRY
+    BEGIN CATCH
+        PRINT 'Error during rebuild: ' + ERROR_MESSAGE();
+        
+        IF ERROR_NUMBER() = 1927 -- Online rebuild not supported
+        BEGIN
+            PRINT '';
+            PRINT 'ONLINE rebuild not supported. Trying OFFLINE rebuild...';
+            SET @SQL = N'ALTER INDEX ALL ON Event_FileManager 
+                         REBUILD PARTITION = ALL 
+                         WITH (MAXDOP = 4);';
+            EXEC sp_executesql @SQL;
+            PRINT 'OFFLINE rebuild completed successfully!';
+        END
+    END CATCH
+END
+GO
+
+-- Create stored procedure to check data integrity across all partitions
+IF OBJECT_ID('usp_CheckPartitionDataIntegrity', 'P') IS NOT NULL
+    DROP PROCEDURE usp_CheckPartitionDataIntegrity;
+GO
+
+CREATE PROCEDURE usp_CheckPartitionDataIntegrity
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    PRINT 'Checking data integrity across all partitions...';
+    PRINT '';
+    
+    -- Check for rows in wrong partitions
+    WITH PartitionBoundaries AS
+    (
+        SELECT 
+            p.partition_number,
+            ISNULL(LAG(CAST(prv.value AS DATETIME)) OVER (ORDER BY prv.boundary_id), '1900-01-01') AS MinBoundary,
+            CAST(prv.value AS DATETIME) AS MaxBoundary
+        FROM sys.partitions p
+        LEFT JOIN sys.partition_range_values prv 
+            ON prv.function_id = (SELECT function_id FROM sys.partition_functions WHERE name = 'PF_Event_FileManager_Daily')
+            AND p.partition_number = prv.boundary_id + 1
+        WHERE p.object_id = OBJECT_ID('Event_FileManager')
+        AND p.index_id IN (0,1)
+    )
+    SELECT 
+        pb.partition_number AS PartitionNumber,
+        pb.MinBoundary,
+        pb.MaxBoundary,
+        COUNT(*) AS TotalRows,
+        SUM(CASE WHEN em.InsertedDate < pb.MinBoundary OR em.InsertedDate >= pb.MaxBoundary 
+                 THEN 1 ELSE 0 END) AS WrongPartitionRows,
+        MIN(em.InsertedDate) AS ActualMinDate,
+        MAX(em.InsertedDate) AS ActualMaxDate
+    FROM Event_FileManager em
+    INNER JOIN PartitionBoundaries pb 
+        ON $PARTITION.PF_Event_FileManager_Daily(em.InsertedDate) = pb.partition_number
+    GROUP BY pb.partition_number, pb.MinBoundary, pb.MaxBoundary
+    HAVING SUM(CASE WHEN em.InsertedDate < pb.MinBoundary OR em.InsertedDate >= pb.MaxBoundary 
+                    THEN 1 ELSE 0 END) > 0
+    ORDER BY pb.partition_number;
+    
+    IF @@ROWCOUNT = 0
+    BEGIN
+        PRINT 'All partitions contain correct data! No integrity issues found.';
+    END
+    ELSE
+    BEGIN
+        PRINT '';
+        PRINT 'Data integrity issues found!';
+        PRINT 'Use usp_FixWrongDataInPartition to investigate or fix specific partitions.';
+        PRINT 'Or use usp_RebuildPartitionedTable to move all data to correct partitions.';
+    END
+END
+GO
 -- =============================================
 -- VERIFICATION QUERIES
 -- =============================================
-
 -- View partition information
 SELECT 
     OBJECT_NAME(p.object_id) AS TableName,
