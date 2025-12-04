@@ -514,9 +514,26 @@ BEGIN
     END
 END
 GO
--- =============================================
+/*
+Typical Workflow for Fixing Wrong Data:
+*/
+-- Step 1: Check for issues / wrong data across all partitions
+EXEC usp_CheckPartitionDataIntegrity;
+
+-- Step 2: Investigate specific partition (report only, doesn't delete)
+EXEC usp_FixWrongDataInPartition @PartitionNumber = 5, @Action = 'REPORT';
+
+-- Step 3: Option A - Delete wrong data
+EXEC usp_FixWrongDataInPartition @PartitionNumber = 5, @Action = 'DELETE';
+
+-- Step 3: Option B - Rebuild to move data to correct partitions (faster, but locks table)
+EXEC usp_RebuildPartitionedTable @RebuildOption = 'OFFLINE';
+
+-- Online rebuild (Enterprise Edition, table stays available but slower)
+EXEC usp_RebuildPartitionedTable @RebuildOption = 'ONLINE';
+-- ========================================================
 -- VERIFICATION QUERIES
--- =============================================
+-- ========================================================
 -- View partition information
 SELECT 
     OBJECT_NAME(p.object_id) AS TableName,
