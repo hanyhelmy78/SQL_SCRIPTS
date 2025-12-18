@@ -1,6 +1,63 @@
+/* IN SECONDARY NODE*/
 USE [msdb]
 GO
-
+EXEC msdb.dbo.sp_add_alert @name=N'AG Failover Detected - Now Primary',
+@message_id=1480,
+@severity=0,
+@enabled=1,
+@delay_between_responses=0,
+@include_event_description_in=1,
+@event_description_keyword=N'"RESOLVING" to "PRIMARY"',
+@job_id=N'00000000-0000-0000-0000-000000000000'
+GO
+EXEC msdb.dbo.sp_add_notification @alert_name=N'AG Failover Detected - Now Primary', @operator_name=N'SQL_DBA', @notification_method = 1
+GO
+--================================================================================================
+/*
+IN PRIMARY NODE
+*/
+USE [msdb]
+GO
+EXEC msdb.dbo.sp_add_alert @name=N'AG Failover Detected - Now Secondary',
+@message_id=1480,
+@severity=0,
+@enabled=1,
+@delay_between_responses=0,
+@include_event_description_in=1,
+@event_description_keyword=N'"RESOLVING" to "SECONDARY"',
+@job_id=N'00000000-0000-0000-0000-000000000000'
+GO
+EXEC msdb.dbo.sp_add_notification @alert_name=N'AG Failover Detected - Now Secondary', @operator_name=N'SQL_DBA', @notification_method = 1
+GO
+--================================================================================================
+/****** Object:  Alert [AG Connection Termintaed]    Script Date: 23/12/2018 1:02:10 PM ******/
+EXEC msdb.dbo.sp_add_alert @name=N'AG Connection Termintaed', 
+		@message_id=35267, 
+		@severity=0, 
+		@enabled=1, 
+		@delay_between_responses=60, 
+		@include_event_description_in=1, 
+		@category_name=N'[Uncategorized]', 
+		@job_id=N'00000000-0000-0000-0000-000000000000'
+GO
+EXEC msdb.dbo.sp_add_notification @alert_name=N'AG Connection Termintaed', @operator_name=N'SQL_DBA', @notification_method = 1
+GO
+--================================================================================================
+/****** Object:  Alert [AlwaysOn - Data Movement Suspended]    Script Date: 23/12/2018 3:33:05 PM ******/
+EXEC msdb.dbo.sp_add_alert @name=N'AG Data Movement Suspended', 
+		@message_id=35264, 
+		@severity=0, 
+		@enabled=1, 
+		@delay_between_responses=60, 
+		@include_event_description_in=1, 
+		@category_name=N'[Uncategorized]', 
+		@job_id=N'00000000-0000-0000-0000-000000000000'
+GO
+EXEC msdb.dbo.sp_add_notification @alert_name=N'AG Data Movement Suspended', @operator_name=N'SQL_DBA', @notification_method = 1
+GO
+--==============================================================================================================================
+USE [msdb]
+GO
 /****** Object:  Alert [AlwaysOn - AG-Replica Changed States-Error(19406)]    Script Date: 9/28/2020 2:54:14 PM ******/
 EXEC msdb.dbo.sp_add_alert @name=N'AlwaysOn - AG-Replica Changed States-Error(19406)', 
 		@message_id=19406, 
@@ -182,4 +239,5 @@ EXEC msdb.dbo.sp_add_alert @name=N'AlwaysOn-The attempt to join database to the 
 		@job_id=N'00000000-0000-0000-0000-000000000000'
 GO
 EXEC msdb.dbo.sp_add_notification @alert_name=N'AlwaysOn-The attempt to join database to the availability group was rejected-Error 35279', @operator_name=N'SQL_DBA', @notification_method = 1;
+
 GO
