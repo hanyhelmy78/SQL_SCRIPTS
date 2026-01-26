@@ -1,8 +1,6 @@
 /*
 This script creates a job to copy and sync all logins in a 3 node Availability Group test environment.
 User accepts all risks.  Always test in a test environment first.
-Ryan J. Adams
-http://www.ryanjadams.com/go/AGSync&lt;/code&gt;
 In order for this to work you HAVE to install dbatools from http://dbatools.io
 This MUST be done on all replicas.
 Run this from an elevated PowerShell to install it.
@@ -1201,4 +1199,5 @@ QuitWithRollback:
 
 IF (@@TRANCOUNT &amp;amp;gt; 0) ROLLBACK TRANSACTION
 EndSave:
+
 GO
