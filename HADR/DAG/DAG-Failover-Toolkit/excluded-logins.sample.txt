@@ -1,0 +1,12 @@
+# Sample exclusion list for Check-ActiveLogins.ps1 and Generate-DrLoginScripts.ps1.
+#
+# Copy this file to excluded-logins.txt and edit it for your environment.
+# The real excluded-logins.txt is git-ignored so site-specific login names
+# are never committed to the repository.
+#
+# Format: login_name | reason   (the pipe and reason are optional)
+# Lines starting with # are comments.  Blank lines are ignored.
+sa | System administrator
+EXAMPLE\dba_admin | DBA admin account
+EXAMPLE\svc-ag-primary | AG service account - required for replication
+EXAMPLE\svc-ag-secondary | AG service account - required for replication
