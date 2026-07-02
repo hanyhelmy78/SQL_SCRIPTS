@@ -1,12 +1,9 @@
 ----------------------------------------------------------------
 -------- Ultimate Compression Savings Estimation Check ---------
 ----------------------------------------------------------------
--- Author: Eitan Blumin | https://www.eitanblumin.com
 -- Create Date: 2019-12-08
 -- Source: http://bit.ly/SQLCompressionEstimation
--- Full Link: https://gist.github.com/EitanBlumin/85cf620f7267b234d677f9c3027fb7ce
 -- GitHub Repo: https://github.com/MadeiraData/MadeiraToolbox/blob/master/Utility%20Scripts/ultimate_compression_savings_estimation_whole_database.sql
--- Blog: https://eitanblumin.com/2020/02/18/ultimate-compression-savings-estimation-script-entire-database/
 ----------------------------------------------------------------
 -- Description:
 -- ------------
@@ -25,6 +22,7 @@
 ----------------------------------------------------------------
 -- Change Log:
 -- -----------
+-- 2024-06-20 - removed parameter @MinimumScanPctForComparison; removed singleton_lookup_count from calculation.
 -- 2021-09-09 - added check for incompatible options SortInTempDB and ResumableBuild being both enabled
 -- 2021-09-06 - added @ResumableRebuild parameter
 -- 2021-09-01 - some minor bug fixes and code quality fixes
@@ -56,7 +54,8 @@
 --
 -- 2. BE MINDFUL IN PRODUCTION ENVIRONMENTS !
 --
---		- If you want to be extra careful, run this script with @FeasibilityCheckOnly set to 1. This will perform only basic checks for compression candidates based on usage and operational stats only, without running [sp_estimate_data_compression_savings].
+--		- If you want to be extra careful, run this script with @FeasibilityCheckOnly set to 1. This will perform only basic checks for compression candidates
+--		  based on usage and operational stats only, without running [sp_estimate_data_compression_savings].
 --
 --		- Running this script with @FeasibilityCheckOnly = 0 may take a very long time on big databases with many tables, and significant IO + CPU stress may be noticeable.
 --
@@ -71,7 +70,7 @@
 DECLARE
 	-- Choose what to check:
 	 @DatabaseName				SYSNAME		= NULL		-- Specify the name of the database to check. If NULL, will use current.
-	,@FeasibilityCheckOnly			BIT		= 0		-- If 1, will only check for potential compression candidates, without using sp_estimate_data_compression_savings and without generating remediation scripts
+	,@FeasibilityCheckOnly			BIT		= 1		-- If 1, will only check for potential compression candidates, without using sp_estimate_data_compression_savings and without generating remediation scripts
 	,@CheckPerPartition			BIT		= 0		-- If 1, will perform separate estimation checks per partition
 	,@MinimumSizeMB				INT		= 256		-- Minimum table/partition size in MB in order to perform estimation checks on it
 
@@ -97,7 +96,6 @@ DECLARE
 	-- Threshold parameters controlling recommendation algorithms based on partition stats:
 	,@MinimumCompressibleDataPercent	INT		= 45		-- Minimum percent of compressible in-row data, in order to consider any compression
 	,@MaximumUpdatePctAsInfrequent		INT		= 10		-- Maximum percent of updates for all operations to consider as "infrequent updates"
-	,@MinimumScanPctForComparison		INT		= 5		-- Minimum percent of range scans before considering to compare between update and scan percentages
 	,@MinimumScanPctForPage			INT		= 40		-- Minimum percent of scans when comparing to update percent, to deem PAGE compression preferable (otherwise, ROW compression will be preferable)
 	,@MaximumUpdatePctForPage		INT		= 40		-- Maximum percent of updates when comparing to scan percent, to deem PAGE compression preferable
 	,@MaximumUpdatePctForRow		INT		= 60		-- Maximum percent of updates when comparing to scan percent, to deem ROW compression preferable
@@ -175,7 +173,6 @@ FROM
 	,('@CompressionRatioThreshold',@CompressionRatioThreshold)
 	,('@MinimumRatioDifferenceForPage',@MinimumRatioDifferenceForPage)
 	,('@MaximumUpdatePctAsInfrequent',@MaximumUpdatePctAsInfrequent)
-	,('@MinimumScanPctForComparison',@MinimumScanPctForComparison)
 	,('@MaximumCPUPercentForRebuild',ISNULL(@MaximumCPUPercentForRebuild,100))
 ) AS v(VarName,VarValue)
 WHERE VarValue NOT BETWEEN 1 AND 100 OR VarValue IS NULL
@@ -325,15 +322,15 @@ BEGIN
 END
 
 -- Make sure specified database is accessible
-IF DB_ID(@CurrDB) IS NULL OR DATABASEPROPERTYEX(@CurrDB, 'Updateability') <> 'READ_WRITE' OR DATABASEPROPERTYEX(@CurrDB, 'Status') <> 'ONLINE'
+IF DB_ID(@CurrDB) IS NULL OR DATABASEPROPERTYEX(@CurrDB, 'Updateability') <> 'READ_WRITE' OR DATABASEPROPERTYEX(@CurrDB, 'Status') <> 'ONLINE' OR HAS_DBACCESS(@CurrDB) = 0
 BEGIN
-	IF @FeasibilityCheckOnly = 0 OR DB_ID(@CurrDB) IS NULL OR DATABASEPROPERTYEX(@CurrDB, 'Status') <> 'ONLINE'
+	IF DB_ID(@CurrDB) IS NULL OR DATABASEPROPERTYEX(@CurrDB, 'Status') <> 'ONLINE' OR HAS_DBACCESS(@CurrDB) = 0
 	BEGIN
-		RAISERROR(N'Database "%s" is not valid for compression estimation check. Please make sure it is accessible and writeable.',16,1,@CurrDB);
+		RAISERROR(N'Database "%s" is not valid for compression estimation check. Please make sure it is online and accessible.',16,1,@CurrDB);
 		GOTO Quit;
 	END
 	ELSE
-		RAISERROR(N'-- NOTE: Database "%s" is not writeable. You will not be able to rebuild its indexes here until it is writeable.',10,1,@CurrDB);
+		RAISERROR(N'-- WARNING: Database "%s" is not writeable. You will not be able to rebuild its indexes here until it is writeable.',10,1,@CurrDB);
 END
 
 -- Get list of all un-compressed tables/partitions in the specified database
@@ -419,8 +416,7 @@ SELECT
 					ISNULL(ios.leaf_delete_count,0) + 
 					ISNULL(ios.leaf_insert_count,0) + 
 					ISNULL(ios.leaf_page_merge_count,0) + 
-					ISNULL(ios.leaf_update_count,0) + 
-					ISNULL(ios.singleton_lookup_count,0)
+					ISNULL(ios.leaf_update_count,0)
 				), 0) * 100.0), 0)
 	, updates_percent = ISNULL(
 				CEILING(SUM(ISNULL(ios.leaf_update_count, 0)) * 1.0 /
@@ -429,8 +425,7 @@ SELECT
 					ISNULL(ios.leaf_delete_count,0) + 
 					ISNULL(ios.leaf_insert_count,0) + 
 					ISNULL(ios.leaf_page_merge_count,0) + 
-					ISNULL(ios.leaf_update_count,0) + 
-					ISNULL(ios.singleton_lookup_count,0)
+					ISNULL(ios.leaf_update_count,0)
 				), 0) * 100.0), 0)
 FROM #objects AS p WITH(NOLOCK)
 OUTER APPLY sys.dm_db_index_operational_stats(db_id(),p.object_id,p.index_id,p.partition_number) AS ios
@@ -501,7 +496,7 @@ BEGIN
 
 	SET @EstimationCheckRecommended = CASE
 						WHEN @InRowPercent < @MinimumCompressibleDataPercent THEN 0
-						WHEN ISNULL(@ScanPercent,0) <= @MinimumScanPctForComparison OR ISNULL(@UpdatePercent,0) <= @MaximumUpdatePctAsInfrequent THEN 1
+						WHEN ISNULL(@UpdatePercent,0) <= @MaximumUpdatePctAsInfrequent THEN 1
 						WHEN @CompressionType = 'PAGE' AND @ScanPercent >= @MinimumScanPctForPage AND @UpdatePercent <= @MaximumUpdatePctForPage THEN 1
 						WHEN @CompressionType = 'ROW' AND @UpdatePercent <= @MaximumUpdatePctForRow THEN 1
 						ELSE 0
@@ -645,7 +640,7 @@ SELECT
 						WHEN is_compression_recommended IS NULL AND is_compression_feasible = 1 THEN 
 						  CASE
 							WHEN in_row_percent < @MinimumCompressibleDataPercent THEN N'No'
-							WHEN compression_type = 'PAGE' AND ISNULL(scan_percent,0) <= @MinimumScanPctForComparison AND ISNULL(update_percent,0) <= @MaximumUpdatePctAsInfrequent THEN 'Yes'
+							WHEN compression_type = 'PAGE' AND ISNULL(update_percent,0) <= @MaximumUpdatePctAsInfrequent THEN 'Yes'
 							WHEN scan_percent >= @MinimumScanPctForPage AND update_percent <= @MaximumUpdatePctForPage THEN
 								CASE WHEN compression_type = 'PAGE' THEN 'Yes' ELSE 'No' END
 							WHEN update_percent <= @MaximumUpdatePctForRow THEN
