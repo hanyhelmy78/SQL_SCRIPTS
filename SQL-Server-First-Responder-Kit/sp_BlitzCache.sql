@@ -247,11 +247,12 @@ CREATE TABLE ##BlitzCacheProcs (
         Warnings VARCHAR(MAX),
     	Pattern NVARCHAR(20),
         ai_prompt NVARCHAR(MAX),
+        ai_query_plan NVARCHAR(MAX),
         ai_advice NVARCHAR(MAX),
         ai_payload NVARCHAR(MAX),
         ai_raw_response NVARCHAR(MAX)
     );
-GO 
+GO
 
 ALTER PROCEDURE dbo.sp_BlitzCache
     @Help BIT = 0,
@@ -305,7 +306,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.32', @VersionDate = '20260407';
+SELECT @Version = '8.34', @VersionDate = '20260702';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -2894,6 +2895,7 @@ BEGIN
         Warnings VARCHAR(MAX),
 		Pattern NVARCHAR(20),
         ai_prompt NVARCHAR(MAX),
+        ai_query_plan NVARCHAR(MAX),
         ai_advice NVARCHAR(MAX),
         ai_payload NVARCHAR(MAX),
         ai_raw_response NVARCHAR(MAX)
@@ -2902,6 +2904,19 @@ END;
 ELSE
 BEGIN
   RAISERROR(N'Cleaning up old plans for your SPID', 0, 1) WITH NOWAIT;
+  /* Schema-drift guard: a ##BlitzCacheProcs left behind by an older version of this
+     proc may be missing the ai_* columns, so add any that are absent on the fly
+     rather than failing the @Reanalyze run. */
+  IF COL_LENGTH('tempdb..##BlitzCacheProcs','ai_prompt') IS NULL
+      ALTER TABLE ##BlitzCacheProcs ADD ai_prompt NVARCHAR(MAX) NULL;
+  IF COL_LENGTH('tempdb..##BlitzCacheProcs','ai_query_plan') IS NULL
+      ALTER TABLE ##BlitzCacheProcs ADD ai_query_plan NVARCHAR(MAX) NULL;
+  IF COL_LENGTH('tempdb..##BlitzCacheProcs','ai_advice') IS NULL
+      ALTER TABLE ##BlitzCacheProcs ADD ai_advice NVARCHAR(MAX) NULL;
+  IF COL_LENGTH('tempdb..##BlitzCacheProcs','ai_payload') IS NULL
+      ALTER TABLE ##BlitzCacheProcs ADD ai_payload NVARCHAR(MAX) NULL;
+  IF COL_LENGTH('tempdb..##BlitzCacheProcs','ai_raw_response') IS NULL
+      ALTER TABLE ##BlitzCacheProcs ADD ai_raw_response NVARCHAR(MAX) NULL;
   DELETE ##BlitzCacheProcs
     WHERE SPID = @@SPID
 	OPTION (RECOMPILE) ;
@@ -4155,7 +4170,7 @@ END ;
 
 IF @ExpertMode > 0
 BEGIN
-RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking for Switch operators', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 is_paul_white_electric AS (
 SELECT 1 AS [is_paul_white_electric], 
@@ -4767,6 +4782,51 @@ IF EXISTS ( SELECT 1/0
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
 
+		/* Roll up missing indexes from statement rows (QueryHash IS NOT NULL)
+		   to the parent proc/function/trigger row (QueryHash IS NULL).
+		   Key by PlanHandle so each cached plan's parent row gets only its
+		   own statements' recommendations (a proc with multiple cached plans
+		   produces one parent row per PlanHandle, and each plan's statements
+		   share that PlanHandle). The rollup is wrapped in a single
+		   <MissingIndexes><![CDATA[ ... ]]></MissingIndexes> envelope so it
+		   stays well-formed for the XML column. See issue #3993. */
+		RAISERROR(N'Rolling up missing indexes to parent proc/function/trigger row', 0, 1) WITH NOWAIT;
+		WITH proc_missing AS (
+		SELECT DISTINCT
+		       stmt.PlanHandle,
+			   N'<MissingIndexes><![CDATA['
+			   + CHAR(10) + CHAR(13)
+			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
+						   FROM   #missing_index_pretty AS mip2
+						   JOIN   ##BlitzCacheProcs AS s2
+								  ON  s2.SqlHandle = mip2.SqlHandle
+								  AND s2.QueryHash = mip2.QueryHash
+								  AND s2.ExecutionCount = mip2.executions
+								  AND s2.SPID = @@SPID
+						   WHERE  s2.PlanHandle = stmt.PlanHandle
+						   GROUP BY mip2.details
+						   ORDER BY MAX(mip2.impact) DESC
+						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')
+			   + CHAR(10) + CHAR(13)
+			   + N']]></MissingIndexes>'
+			   AS full_details
+		FROM ##BlitzCacheProcs AS stmt
+		JOIN #missing_index_pretty AS mip
+		  ON  mip.SqlHandle = stmt.SqlHandle
+		  AND mip.QueryHash = stmt.QueryHash
+		  AND mip.executions = stmt.ExecutionCount
+		WHERE stmt.SPID = @@SPID
+		  AND stmt.QueryHash IS NOT NULL
+						)
+		UPDATE bbcp
+			SET bbcp.missing_indexes = pm.full_details
+		FROM ##BlitzCacheProcs AS bbcp
+		JOIN proc_missing AS pm
+		ON pm.PlanHandle = bbcp.PlanHandle
+		WHERE bbcp.QueryHash IS NULL
+		AND bbcp.SPID = @@SPID
+		OPTION (RECOMPILE);
+
 	END;
 
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
@@ -5262,6 +5322,279 @@ BEGIN
       AND LEN(c.Constitution) > 0;
 
 
+    /* Minimize the query plan XML before adding it to the AI prompt.
+       Goals: less token spend, less LLM distraction. Implements GitHub issue #3862.
+       - Strip cost-percentage attributes (the issue's main ask) and other noise.
+       - Collapse per-thread row-mode timings into per-operator net values
+         (Forrest McDaniel's approach: per-thread sum minus immediate-child sum).
+       - Minify whitespace in the final text.
+       On any failure we leave ai_query_plan NULL; the prompt build below falls
+       back to CAST(QueryPlan AS NVARCHAR(MAX)). */
+    RAISERROR(N'Minimizing query plan XML for AI prompt', 0, 1) WITH NOWAIT;
+
+    DECLARE @plan_op_thread TABLE (
+        NodeId   INT,
+        Mode     VARCHAR(10),
+        ThreadId INT,
+        Rows_    BIGINT,
+        Scans    BIGINT,
+        CPUms    BIGINT,
+        Elapms   BIGINT,
+        Execs    BIGINT
+    );
+    /* SQL Server XQuery does not support the ancestor:: axis, so we build the
+       parent-child RelOp map in two steps: first capture every ancestor-descendant
+       pair via descendant:: (handles arbitrarily-deep nesting like scalar subquery
+       RelOps under ComputeScalar/DefinedValues/ScalarOperator), then derive the
+       immediate parents by eliminating pairs that have an intermediate RelOp. */
+    DECLARE @plan_anc_desc TABLE (
+        AncestorId   INT,
+        DescendantId INT,
+        PRIMARY KEY (AncestorId, DescendantId)
+    );
+    DECLARE @plan_parent_child TABLE (
+        ParentNodeId INT,
+        ChildNodeId  INT
+    );
+    DECLARE @plan_op_recalc TABLE (
+        NodeId    INT,
+        SumCPUms  BIGINT,
+        MaxElapms BIGINT,
+        SumRows   BIGINT,
+        MaxScans  BIGINT,
+        SumExecs  BIGINT
+    );
+
+    DECLARE @cur_sql VARBINARY(64),
+            @cur_hash BINARY(8),
+            @cur_plan_handle VARBINARY(64),
+            @cur_plan XML,
+            @cur_plan_text NVARCHAR(MAX),
+            @cur_has_actuals BIT,
+            @cur_relop_count INT,
+            @cur_distinct_nodeids INT,
+            @cur_modify_errors INT,
+            @nid INT, @cpu BIGINT, @elap BIGINT, @rows BIGINT, @scans BIGINT, @execs BIGINT;
+
+    /* PlanHandle is part of the key because (SqlHandle, QueryHash) is not unique
+       when the same query hash has multiple distinct plans - without it, the
+       UPDATE below would stamp the last-fetched plan's minimized text onto every
+       row sharing the pair. Mirrors the AI-call cursor's matching. */
+    DECLARE ai_plan_min_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT SqlHandle, QueryHash, PlanHandle, QueryPlan
+        FROM ##BlitzCacheProcs
+        WHERE SPID = @@SPID
+          AND QueryPlan IS NOT NULL;
+
+    OPEN ai_plan_min_cursor;
+    FETCH NEXT FROM ai_plan_min_cursor INTO @cur_sql, @cur_hash, @cur_plan_handle, @cur_plan;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        BEGIN TRY
+            DELETE FROM @plan_op_thread;
+            DELETE FROM @plan_anc_desc;
+            DELETE FROM @plan_parent_child;
+            DELETE FROM @plan_op_recalc;
+            SET @cur_modify_errors = 0;
+
+            /* Does this plan have actuals? If not, estimated attributes are the
+               only signal we have; do not strip estimates that lack an actual
+               equivalent. */
+            SET @cur_has_actuals = CASE WHEN @cur_plan.exist(N'
+                declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                //p:RunTimeInformation
+            ') = 1 THEN 1 ELSE 0 END;
+
+            /* 2a. Always-delete attributes: cost-percentage distractors per the issue, plus noise. */
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedTotalSubtreeCost'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@StatementSubTreeCost'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimateCPU'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimateIO'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@AvgRowSize'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+
+            /* Compile/hardware chatter — already surfaced in the metrics block. */
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@CompileTime'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@CompileCPU'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@CompileMemory'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@CachedPlanSize'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@MaxCompileMemory'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedAvailableDegreeOfParallelism'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedAvailableMemoryGrant'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedPagesCached'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+
+            /* Statement metadata of low AI value. */
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@StatementOptmEarlyAbortReason'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@StatementOptmLevel'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@RetrievedFromCache'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@SecurityPolicyApplied'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+
+            /* Estimate attributes superseded by actuals — only strip when actuals exist. */
+            IF @cur_has_actuals = 1
+            BEGIN
+                BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimateRebinds'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+                BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimateRewinds'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+                BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedRowsRead'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+                BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedRowsForAllExecs'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+                BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@TableCardinality'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+                BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //@EstimatedExecutionMode'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            END;
+
+            /* 2b. Element deletion. */
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //p:OptimizerHardwareDependentProperties'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //p:OptimizerStatsUsage'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //p:TraceFlags'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //p:WaitStats'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+            BEGIN TRY SET @cur_plan.modify(N'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; delete //p:ParameterList[not(p:ColumnReference)]'); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+
+            /* 2c. Row-mode operator timing recalc (per-thread cumulative -> per-operator net).
+               Skipped when:
+               - The plan is estimated-only (nothing to recalc).
+               - The plan has more than 500 RelOps. Each RelOp costs two .modify() calls
+                 (a delete plus an insert), and every .modify() rewrites the whole
+                 document, so the cap bounds a single plan to ~1,000 rewrites - roughly
+                 a second of CPU on a big plan. Plans over the cap still get the
+                 attribute/element stripping above and whitespace minification below;
+                 they only keep their original cumulative row-mode timings.
+               - NodeId values are not unique across the document. NodeId is only
+                 unique within a single statement, so on multi-statement plans
+                 (stored procedures, batches) //p:RelOp[@NodeId=...] would mix
+                 operators from different statements: the math would blend unrelated
+                 operators and the delete/insert would target the wrong nodes. */
+            SET @cur_relop_count = @cur_plan.value(N'
+                declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                count(//p:RelOp)', 'int');
+            SET @cur_distinct_nodeids = @cur_plan.value(N'
+                declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                count(distinct-values(//p:RelOp/@NodeId))', 'int');
+
+            IF @cur_has_actuals = 1
+               AND @cur_relop_count <= 500
+               AND @cur_distinct_nodeids = @cur_relop_count
+            BEGIN
+                ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+                INSERT INTO @plan_op_thread (NodeId, Mode, ThreadId, Rows_, Scans, CPUms, Elapms, Execs)
+                SELECT
+                    ro.value('@NodeId', 'int'),
+                    ro.value('@ActualExecutionMode', 'varchar(10)'),
+                    ctr.value('@Thread', 'int'),
+                    ctr.value('@ActualRows', 'bigint'),
+                    ctr.value('@ActualEndOfScans', 'bigint'),
+                    ctr.value('@ActualCPUms', 'bigint'),
+                    ctr.value('@ActualElapsedms', 'bigint'),
+                    ctr.value('@ActualExecutions', 'bigint')
+                FROM @cur_plan.nodes('//p:RelOp') AS r(ro)
+                CROSS APPLY ro.nodes('p:RunTimeInformation/p:RunTimeCountersPerThread') AS c(ctr);
+
+                ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+                INSERT INTO @plan_anc_desc (AncestorId, DescendantId)
+                SELECT
+                    a_ro.value('@NodeId', 'int'),
+                    d_ro.value('@NodeId', 'int')
+                FROM @cur_plan.nodes('//p:RelOp') AS p_(a_ro)
+                CROSS APPLY a_ro.nodes('.//p:RelOp') AS c(d_ro);
+
+                /* Immediate parent = ancestor pair with no intermediate RelOp. */
+                INSERT INTO @plan_parent_child (ParentNodeId, ChildNodeId)
+                SELECT ad.AncestorId, ad.DescendantId
+                FROM @plan_anc_desc ad
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM @plan_anc_desc ad2
+                    JOIN @plan_anc_desc ad3 ON ad3.AncestorId = ad2.DescendantId
+                    WHERE ad2.AncestorId = ad.AncestorId
+                      AND ad3.DescendantId = ad.DescendantId
+                );
+
+                ;WITH child_sum AS (
+                    SELECT pc.ParentNodeId, t.ThreadId,
+                           ChildCPUms  = SUM(t.CPUms),
+                           ChildElapms = SUM(t.Elapms)
+                    FROM @plan_parent_child pc
+                    JOIN @plan_op_thread t ON t.NodeId = pc.ChildNodeId
+                    WHERE t.Mode = 'Row'
+                    GROUP BY pc.ParentNodeId, t.ThreadId
+                ),
+                per_thread AS (
+                    SELECT t.NodeId, t.ThreadId, t.Mode,
+                           OwnCPUms  = CASE WHEN t.Mode = 'Row' THEN t.CPUms  - ISNULL(c.ChildCPUms, 0)  ELSE t.CPUms  END,
+                           OwnElapms = CASE WHEN t.Mode = 'Row' THEN t.Elapms - ISNULL(c.ChildElapms, 0) ELSE t.Elapms END,
+                           t.Rows_, t.Scans, t.Execs
+                    FROM @plan_op_thread t
+                    LEFT JOIN child_sum c ON c.ParentNodeId = t.NodeId AND c.ThreadId = t.ThreadId
+                )
+                INSERT INTO @plan_op_recalc (NodeId, SumCPUms, MaxElapms, SumRows, MaxScans, SumExecs)
+                SELECT NodeId,
+                       SUM(CASE WHEN OwnCPUms  < 0 THEN 0 ELSE OwnCPUms  END),
+                       MAX(CASE WHEN OwnElapms < 0 THEN 0 ELSE OwnElapms END),
+                       SUM(Rows_),
+                       MAX(Scans),
+                       SUM(Execs)
+                FROM per_thread
+                GROUP BY NodeId;
+
+                /* Collapse per-thread blocks down to one summary entry per operator.
+                   Done via delete-all + insert-fresh because parallel plans label
+                   their threads 1..N (no Thread=0 to write into). */
+                WHILE EXISTS (SELECT 1 FROM @plan_op_recalc)
+                BEGIN
+                    SELECT TOP (1) @nid = NodeId, @cpu = SumCPUms, @elap = MaxElapms, @rows = SumRows, @scans = MaxScans, @execs = SumExecs
+                    FROM @plan_op_recalc;
+
+                    BEGIN TRY SET @cur_plan.modify(N'
+                        declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                        delete //p:RelOp[@NodeId=sql:variable("@nid")]/p:RunTimeInformation/p:RunTimeCountersPerThread
+                    '); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+                    BEGIN TRY SET @cur_plan.modify(N'
+                        declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                        insert <p:RunTimeCountersPerThread Thread="0"
+                                    ActualRows="{sql:variable("@rows")}"
+                                    ActualEndOfScans="{sql:variable("@scans")}"
+                                    ActualExecutions="{sql:variable("@execs")}"
+                                    ActualCPUms="{sql:variable("@cpu")}"
+                                    ActualElapsedms="{sql:variable("@elap")}" />
+                        into (//p:RelOp[@NodeId=sql:variable("@nid")]/p:RunTimeInformation)[1]
+                    '); END TRY BEGIN CATCH SET @cur_modify_errors += 1; END CATCH;
+
+                    DELETE @plan_op_recalc WHERE NodeId = @nid;
+                END;
+            END;
+
+            /* 2d. Whitespace minification (text-level, after all .modify() work). */
+            SET @cur_plan_text = CAST(@cur_plan AS NVARCHAR(MAX));
+            SET @cur_plan_text = REPLACE(@cur_plan_text, NCHAR(13) + NCHAR(10), N'');
+            SET @cur_plan_text = REPLACE(@cur_plan_text, NCHAR(10), N'');
+            SET @cur_plan_text = REPLACE(@cur_plan_text, NCHAR(9), N'');
+            SET @cur_plan_text = REPLACE(@cur_plan_text, N'>  ', N'>');
+            SET @cur_plan_text = REPLACE(@cur_plan_text, N'>  ', N'>');
+            SET @cur_plan_text = REPLACE(@cur_plan_text, N'> <', N'><');
+
+            /* NULL-safe matching: parent procedure/batch rows carry a NULL QueryHash,
+               and a plain equality match would silently discard their minimized text. */
+            UPDATE ##BlitzCacheProcs
+               SET ai_query_plan = @cur_plan_text
+             WHERE SPID = @@SPID
+               AND ((@cur_sql  IS NOT NULL AND SqlHandle = @cur_sql)  OR (@cur_sql  IS NULL AND SqlHandle IS NULL))
+               AND ((@cur_hash IS NOT NULL AND QueryHash = @cur_hash) OR (@cur_hash IS NULL AND QueryHash IS NULL))
+               AND ((@cur_plan_handle IS NOT NULL AND PlanHandle = @cur_plan_handle) OR (@cur_plan_handle IS NULL AND PlanHandle IS NULL));
+
+            IF @Debug >= 1 AND @cur_modify_errors > 0
+                RAISERROR(N'Plan minimizer: %d transformation step(s) failed on one plan; partial minimization kept.', 0, 1, @cur_modify_errors) WITH NOWAIT;
+        END TRY
+        BEGIN CATCH
+            /* Catastrophic failure on this plan (e.g., processing-instruction stub
+               from the huge-plan path) - leave ai_query_plan NULL; prompt build
+               falls back to CAST(QueryPlan AS NVARCHAR(MAX)). */
+            IF @Debug >= 1
+                RAISERROR(N'Plan minimization failed for one row; falling back to raw plan.', 0, 1) WITH NOWAIT;
+        END CATCH;
+
+        FETCH NEXT FROM ai_plan_min_cursor INTO @cur_sql, @cur_hash, @cur_plan_handle, @cur_plan;
+    END;
+    CLOSE ai_plan_min_cursor;
+    DEALLOCATE ai_plan_min_cursor;
+
+
     /* Update ai_prompt column with query metrics for rows that have query plans */
     UPDATE p
     SET ai_prompt = COALESCE(ai_prompt, N'') + N'Here are the performance metrics we are seeing in production, as measured by the plan cache:
@@ -5326,13 +5659,87 @@ Query Text (which is cut off for long queries):
 
 ' + CASE WHEN QueryType LIKE N'Statement (parent%' THEN N' The above query is part of a batch, stored procedure, or function, so other queries may show up in the query plan. However, those other queries are irrelevant here. Focus on this specific query above, because it is one of the most resource-intensive queries in the batch. The execution plan below includes other statements in the batch, but ignore those and focus only the query above and its specific plan in the batch below. ' ELSE N' ' END + N'
 
-XML Execution Plan:
-' + CASE WHEN QueryPlan IS NULL THEN N'(Query plan could not be retrieved.)' ELSE CAST(QueryPlan AS NVARCHAR(MAX)) END + N'
+Plan summary: ' + CASE WHEN is_parallel = 1 THEN N'parallel' ELSE N'serial' END + N', ' + ISNULL(CAST(missing_index_count AS NVARCHAR(10)), N'0') + N' missing index suggestion(s).
+' + CASE WHEN ai_query_plan IS NOT NULL
+        THEN N'XML Execution Plan (minimized to reduce tokens: cost-percent attributes stripped; row-mode operator timings shown per-operator rather than cumulative; per-thread timings collapsed to one summary per operator):'
+        ELSE N'XML Execution Plan:' END + N'
+' + CASE
+        WHEN ai_query_plan IS NOT NULL THEN ai_query_plan
+        WHEN QueryPlan    IS NOT NULL THEN CAST(QueryPlan AS NVARCHAR(MAX))
+        ELSE N'(Query plan could not be retrieved.)'
+    END + N'
 
 Thank you.'
     FROM ##BlitzCacheProcs p
     WHERE p.SPID = @@SPID
-    AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
+    /* Generate a prompt for every row, including parent procedures whose
+       statements are also in the result set. When @AI = 1 we still avoid
+       calling the API on those parents (see the cursor below), but @AI = 2
+       users get a full prompt on every row so they can paste it elsewhere. */
+    OPTION (RECOMPILE);
+
+    /* If both query text and query plan are null, override with a simple message - no metrics or system prompt needed */
+    UPDATE ##BlitzCacheProcs
+    SET ai_prompt = N'Prompt not generated because we can''t find the query text or query plan.'
+    WHERE SPID = @@SPID
+    AND QueryText IS NULL
+    AND QueryPlan IS NULL
+    OPTION (RECOMPILE);
+
+    /* Captured query text can contain a NUL (0x0000), which is illegal in XML and breaks
+       the FOR XML serialization that renders the AI columns (Msg 6841), and is also invalid
+       in the JSON payload we POST to AI providers. Strip it here, after the prompt is built.
+       The COLLATE is required: under the default (non-binary) collations NCHAR(0) has no
+       sort weight, so a plain REPLACE never matches it and leaves the NUL in place. */
+    UPDATE ##BlitzCacheProcs
+    SET ai_prompt = REPLACE(ai_prompt COLLATE Latin1_General_BIN2, NCHAR(0), N'')
+    WHERE SPID = @@SPID
+    AND ai_prompt IS NOT NULL
+    OPTION (RECOMPILE);
+
+    IF @Debug = 2
+    BEGIN
+        SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_query_plan, ai_advice, ai_raw_response
+            FROM ##BlitzCacheProcs
+            WHERE SPID = @@SPID;
+
+        SELECT 'Plan minimization savings' AS ai_stage,
+               SqlHandle,
+               QueryHash,
+               OriginalBytes  = DATALENGTH(CAST(QueryPlan AS NVARCHAR(MAX))),
+               MinimizedBytes = DATALENGTH(ai_query_plan),
+               PercentSaved   = CASE WHEN DATALENGTH(CAST(QueryPlan AS NVARCHAR(MAX))) > 0
+                                     THEN 100 - (DATALENGTH(ai_query_plan) * 100
+                                                 / DATALENGTH(CAST(QueryPlan AS NVARCHAR(MAX))))
+                                END
+        FROM ##BlitzCacheProcs
+        WHERE SPID = @@SPID
+          AND ai_query_plan IS NOT NULL
+        ORDER BY OriginalBytes DESC;
+    END;
+        
+    IF @AI = 1
+    BEGIN
+        RAISERROR('Calling AI endpoint for query plan analysis - starting loop', 0, 1) WITH NOWAIT;
+
+        /* Identify parent procedure rows whose statements are also in the
+           result set. The same set is consumed twice below — once to stamp a
+           clear ai_advice on those parent rows so the column isn't blank in
+           the output, and again to filter the AI cursor so we don't pay for a
+           redundant API call (each statement is analyzed individually).
+           Materializing it once keeps the (PlanHandle, QueryType-name) match
+           logic in one place. */
+        CREATE TABLE #parents_with_kids
+        (
+            PlanHandle VARBINARY(64) NOT NULL,
+            QueryType  NVARCHAR(258) NOT NULL
+        );
+
+        INSERT INTO #parents_with_kids (PlanHandle, QueryType)
+        SELECT DISTINCT p.PlanHandle, p.QueryType
+        FROM ##BlitzCacheProcs AS p
+        WHERE p.SPID = @@SPID
+        AND p.QueryType LIKE 'Procedure or Function:%'
         AND EXISTS
         (
             SELECT 1
@@ -5357,25 +5764,19 @@ Thank you.'
                           - (LEN('Statement (parent ') + 1)
                     )))
         )
-    )
-    OPTION (RECOMPILE);
+        OPTION (RECOMPILE);
 
-    /* If both query text and query plan are null, override with a simple message - no metrics or system prompt needed */
-    UPDATE ##BlitzCacheProcs
-    SET ai_prompt = N'Prompt not generated because we can''t find the query text or query plan.'
-    WHERE SPID = @@SPID
-    AND QueryText IS NULL
-    AND QueryPlan IS NULL
-    OPTION (RECOMPILE);
+        CREATE NONCLUSTERED INDEX IX_parents_with_kids
+            ON #parents_with_kids (PlanHandle, QueryType);
 
-    IF @Debug = 2
-        SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
-            FROM ##BlitzCacheProcs
-            WHERE SPID = @@SPID;
-        
-    IF @AI = 1
-    BEGIN
-        RAISERROR('Calling AI endpoint for query plan analysis - starting loop', 0, 1) WITH NOWAIT;
+        UPDATE p
+        SET p.ai_advice = N'AI advice not generated for this parent procedure because its individual statements are being analyzed separately. See the AI Advice on each Statement (parent ...) row.'
+        FROM ##BlitzCacheProcs AS p
+        INNER JOIN #parents_with_kids AS pwk
+            ON pwk.PlanHandle = p.PlanHandle
+           AND pwk.QueryType  = p.QueryType
+        WHERE p.SPID = @@SPID
+        OPTION (RECOMPILE);
 
         DECLARE @CurrentSqlHandle VARBINARY(64);
         DECLARE @CurrentQueryHash BINARY(8);
@@ -5385,13 +5786,23 @@ Thank you.'
         DECLARE @AIResponseJSON NVARCHAR(MAX);
         DECLARE @AIReturnValue INT;
         DECLARE @AIErrorMessage NVARCHAR(4000);
-        
+
         DECLARE ai_cursor CURSOR LOCAL FAST_FORWARD FOR
-        SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(COALESCE(QueryText, N'(no text)'), 100)
-        FROM ##BlitzCacheProcs
-        WHERE SPID = @@SPID
-        AND ai_prompt IS NOT NULL
-        AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL);
+        SELECT DISTINCT p.SqlHandle, p.QueryHash, p.PlanHandle, p.ai_prompt, COALESCE(p.QueryType, N'') + N' - ' + LEFT(COALESCE(p.QueryText, N'(no text)'), 100)
+        FROM ##BlitzCacheProcs AS p
+        WHERE p.SPID = @@SPID
+        AND p.ai_prompt IS NOT NULL
+        AND (p.QueryPlan IS NOT NULL OR p.QueryText IS NOT NULL)
+        /* Skip parent procs whose statements are in the result set — those
+           statements are analyzed individually, so the parent would be a
+           redundant API call. */
+        AND NOT EXISTS
+        (
+            SELECT 1
+            FROM #parents_with_kids AS pwk
+            WHERE pwk.PlanHandle = p.PlanHandle
+              AND pwk.QueryType  = p.QueryType
+        );
         
         OPEN ai_cursor;
         
@@ -5475,9 +5886,10 @@ Thank you.'
                     SET @AIAdviceText = N'No response received from AI service.';
                 END;
 
-                /* Store the response in the ai_advice column */
+                /* Store the response in the ai_advice column. Strip any NUL (0x0000) the API may
+                   return - it's illegal in XML and would break the FOR XML rendering of these columns. */
                 UPDATE ##BlitzCacheProcs
-                SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
+                SET ai_advice = REPLACE(@AIAdviceText COLLATE Latin1_General_BIN2, NCHAR(0), N''), ai_raw_response = REPLACE(@AIResponseJSON COLLATE Latin1_General_BIN2, NCHAR(0), N''), ai_payload = @AIPayload
                 WHERE SPID = @@SPID
                 AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
                      OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
@@ -5498,7 +5910,7 @@ Thank you.'
 
                 -- Store the error message in ai_advice so the user knows what happened
                 UPDATE ##BlitzCacheProcs
-                SET ai_advice = @AIErrorMessage, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
+                SET ai_advice = @AIErrorMessage, ai_raw_response = REPLACE(@AIResponseJSON COLLATE Latin1_General_BIN2, NCHAR(0), N''), ai_payload = @AIPayload
                 WHERE SPID = @@SPID
                 AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
                      OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
@@ -6743,7 +7155,7 @@ BEGIN
              VALUES (@@SPID,
                      57,
                      200,
-                     'Is Paul White Electric?',
+                     'Switch Operator',
                      'This query has a Switch operator in it!',
                      'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
@@ -8351,5 +8763,7 @@ END ';
 		BEGIN
 			RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 END; /* End of writing results to table */
+
 END; /*Final End*/
+
 GO
