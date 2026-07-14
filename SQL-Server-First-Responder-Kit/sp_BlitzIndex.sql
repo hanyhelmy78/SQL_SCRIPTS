@@ -84,7 +84,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.32', @VersionDate = '20260407';
+SELECT @Version = '8.34', @VersionDate = '20260702';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -3604,6 +3604,7 @@ BEGIN
             s.last_user_update,
             s.create_date,
             s.modify_date,
+            s.optimize_for_sequential_key,
 			sz.page_latch_wait_count,
 			CONVERT(VARCHAR(10), (sz.page_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_latch_wait_in_ms / 1000), 0), 108) AS page_latch_wait_time,
 			sz.page_io_latch_wait_count,
@@ -3636,7 +3637,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -3658,9 +3659,10 @@ BEGIN
             create_date AS [Created],
             modify_date AS [Last Modified],
 			page_latch_wait_count AS [Page Latch Wait Count],
-			page_latch_wait_time as [Page Latch Wait Time (D:H:M:S)],
+			page_latch_wait_time AS [Page Latch Wait Time (D:H:M:S)],
+            optimize_for_sequential_key AS [Optimized For Sequential Key?],
 			page_io_latch_wait_count AS [Page IO Latch Wait Count],								
-			page_io_latch_wait_time as [Page IO Latch Wait Time (D:H:M:S)],
+			page_io_latch_wait_time AS [Page IO Latch Wait Time (D:H:M:S)],
             create_tsql AS [Create TSQL],
             drop_tsql AS [Drop TSQL]
     FROM table_mode_cte
@@ -6552,21 +6554,24 @@ BEGIN
 
 		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               secret_columns, index_usage_summary, index_size_summary )
+                                               secret_columns, index_usage_summary, index_size_summary, more_info )
 
 				SELECT  121 AS check_id, 
 				200 AS Priority,
 				'Specialized Indexes' AS findings_group,
 				'Optimized For Sequential Keys',
 				i.database_name,
-				'' AS URL,
-				'The table ' + QUOTENAME(i.schema_name) + '.' + QUOTENAME(i.object_name) + ' is optimized for sequential keys.' AS details,
-				'' AS index_definition,
-				'N/A' AS secret_columns,
-				'N/A' AS index_usage_summary,
-				'N/A' AS index_size_summary
+				'https://erikdarling.com/enabling-optimize-for-sequential-key/' AS URL,
+				N'The index ' + i.db_schema_object_indexid + N' is optimized for sequential keys.' AS details,
+                ISNULL(i.key_column_names_with_sort_order,'N/A') AS index_definition,
+                ISNULL(i.secret_columns,'') AS secret_columns,
+                i.index_usage_summary AS index_usage_summary,
+                iss.index_size_summary AS index_size_summary,
+                i.more_info
 		FROM #IndexSanity AS i
+        JOIN #IndexSanitySize iss ON i.index_sanity_id=iss.index_sanity_id
 		WHERE i.optimize_for_sequential_key = 1
+        AND iss.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE iss.total_reserved_MB END
 		OPTION    ( RECOMPILE );
 
 
@@ -7211,6 +7216,7 @@ BEGIN
 											[data_compression_desc] NVARCHAR(4000), 
 						                    [page_latch_wait_count] BIGINT,
 								            [page_latch_wait_in_ms] BIGINT,
+								            [optimize_for_sequential_key] BIT NULL,
 								            [page_io_latch_wait_count] BIGINT,								
 								            [page_io_latch_wait_in_ms] BIGINT,
 											[create_date] DATETIME, 
@@ -7313,6 +7319,7 @@ BEGIN
 											[data_compression_desc], 
 						                    [page_latch_wait_count],
 								            [page_latch_wait_in_ms],
+								            [optimize_for_sequential_key],
 								            [page_io_latch_wait_count],								
 								            [page_io_latch_wait_in_ms],
 											[create_date], 
@@ -7404,6 +7411,7 @@ BEGIN
 										sz.data_compression_desc AS [Data Compression],
 						                sz.page_latch_wait_count,
 								        sz.page_latch_wait_in_ms,
+								        i.optimize_for_sequential_key AS [Optimized For Sequential Key?],
 								        sz.page_io_latch_wait_count,								
 								        sz.page_io_latch_wait_in_ms,
 										i.create_date AS [Create Date],
@@ -7497,6 +7505,7 @@ BEGIN
 					sz.total_index_lock_promotion_count AS [Lock Escalations],
 					sz.page_latch_wait_count AS [Page Latch Wait Count],
 					sz.page_latch_wait_in_ms AS [Page Latch Wait ms],
+					i.optimize_for_sequential_key AS [Optimized For Sequential Key?],
 					sz.page_io_latch_wait_count AS [Page IO Latch Wait Count],								
 					sz.page_io_latch_wait_in_ms as [Page IO Latch Wait ms],
                     sz.total_forwarded_fetch_count AS [Forwarded Fetches],
