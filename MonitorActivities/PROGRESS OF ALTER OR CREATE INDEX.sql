@@ -1,3 +1,16 @@
+SELECT
+    session_id,
+    physical_operator_name,
+    SUM(row_count)          AS RowsProcessed,
+    SUM(estimate_row_count) AS EstimatedRows,
+    CAST(SUM(row_count) * 100.0 / NULLIF(SUM(estimate_row_count), 0) AS DECIMAL(5,2)) AS PctComplete
+FROM sys.dm_exec_query_profiles
+WHERE session_id IN (
+    SELECT session_id FROM sys.dm_exec_requests WHERE command LIKE '%INDEX%'
+)
+GROUP BY session_id, physical_operator_name
+ORDER BY session_id;
+-- *****************************************************************************************************
 ;WITH agg AS
 (
      SELECT SUM(qp.[row_count]) AS [RowsProcessed],
