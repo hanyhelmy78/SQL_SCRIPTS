@@ -1,3 +1,7 @@
+/*
+1- If the existing clustered index is not aligned with the column used for partitioning, then this technique doesn’t work.
+2- Nonclustered indexes of the original table should NOT be created on the partition scheme for the new partitioned table.
+*/
 DROP TABLE IF EXISTS dbo.HumongousTable;
 DROP TABLE IF EXISTS dbo.HumongousTable_Temp;
 
@@ -51,15 +55,17 @@ CREATE TABLE dbo.HumongousTable_Temp /* Non-partitioned */ (
     Description NVARCHAR (500) NULL,
     LogDate     DATETIME2      NOT NULL,
     CONSTRAINT PK_HumungousTable_Temp UNIQUE CLUSTERED (LogDate, Id)); 
-    
-/* switch the current data, SWITCH IS METADATA ONLY */
+
+/* Now create all Non clustered indexes that exist on the original source table.   
+Then switch the current data, SWITCH IS METADATA ONLY */
 
 ALTER TABLE dbo.HumongousTable SWITCH TO dbo.HumongousTable_Temp; 
 
 /* rebuild (the NOW EMPTY) PK_HumungousTable on the partition scheme */
 
 CREATE UNIQUE CLUSTERED INDEX PK_HumungousTable
-    ON dbo.HumongousTable(LogDate, Id) WITH (DROP_EXISTING = ON)
+    ON dbo.HumongousTable(LogDate, Id) 
+    WITH (DROP_EXISTING = ON) -- Must do!
     ON PS_MonthlySlidingWindow (LogDate); 
 
 /* switch data back, STILL FAST | ZERO SECONDS! */
@@ -74,14 +80,15 @@ IF NOT EXISTS (SELECT *
 
 DECLARE @Month AS DATETIME2 = DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1);
 
-WHILE @Month < '20300101' /* or whenever you plan to retire ;-) */
+WHILE @Month < '20300101' /* or whenever you plan to retire */
     BEGIN
         SET @Month = DATEADD(MONTH, 1, @Month);
         ALTER PARTITION FUNCTION PF_MonthlySlidingWindow( )
             SPLIT RANGE (@Month);
         ALTER PARTITION SCHEME PS_MonthlySlidingWindow NEXT USED [PRIMARY];
-    END /* About 42 new partitions: */
+    END 
 
+/* About 42 new partitions: */
 SELECT COUNT(*) AS NumberOfPartitions
 FROM   sys.partitions
 WHERE  object_id = OBJECT_ID('dbo.HumongousTable');
