@@ -6765,7 +6765,7 @@ ALTER PROCEDURE [dbo].[IndexOptimize]
 
 @Databases nvarchar(max) = NULL,
 @FragmentationLow nvarchar(max) = NULL,
-@FragmentationMedium nvarchar(max) = 'INDEX_REORGANIZE,INDEX_REBUILD_ONLINE,INDEX_REBUILD_OFFLINE',
+@FragmentationMedium nvarchar(max) = 'INDEX_REBUILD_ONLINE,INDEX_REBUILD_OFFLINE',
 @FragmentationHigh nvarchar(max) = 'INDEX_REBUILD_ONLINE,INDEX_REBUILD_OFFLINE',
 @FragmentationLevel1 int = 30,
 @FragmentationLevel2 int = 70,
