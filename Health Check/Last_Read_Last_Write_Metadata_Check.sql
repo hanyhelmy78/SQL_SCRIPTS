@@ -1,5 +1,5 @@
--- SELECT * FROM uber_table_info ORDER BY [table];
-CREATE OR ALTER VIEW uber_table_info
+-- SELECT * FROM user_table_info ORDER BY [table];
+CREATE OR ALTER VIEW user_table_info
 AS
   SELECT
     -- basic metadata
