@@ -1,6 +1,6 @@
 --On the primary replica of the AG and DAG
 --Alter DAG to SYNC the remote ag (forwarder)
---ALTER AVAILABILITY GROUP DAG_Test MODIFY AVAILABILITY GROUP ON 'AG2' WITH (AVAILABILITY_MODE = ASYNCHRONOUS_COMMIT);
+ALTER AVAILABILITY GROUP DAG_Test MODIFY AVAILABILITY GROUP ON 'AG2' WITH (AVAILABILITY_MODE = SYNCHRONOUS_COMMIT);
 
 --Verification
 SELECT drs.synchronization_state, drs.synchronization_state_desc, drs.synchronization_health, drs.synchronization_health_desc, drs.is_commit_participant
